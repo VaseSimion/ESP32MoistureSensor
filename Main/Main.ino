@@ -1,36 +1,83 @@
-#include <Arduino.h>
-#include <U8g2lib.h> // from https://github.com/olikraus/u8g2
+#include <ESP8266WiFi.h>
+#include <espnow.h>
 
-#ifdef U8X8_HAVE_HW_SPI
-#include <SPI.h>
-#endif
-#ifdef U8X8_HAVE_HW_I2C
-#include <Wire.h>
-#endif
+//This reads the value and sends it through ESP now and it's done for ESP8266
+//It gets values from ESP Now but it ignores them for the moment
 
-
-U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);   // pin remapping with ESP8266 HW I2C
-
-const int sensorInputPin = 33;
+const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
 int adcValueRead = 0;
 
-// End of constructor list
+uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
+String success;
 
+typedef struct message
+{
+  uint16_t idOfOgSender;
+  uint16_t adcValue;
+} message_struct;
 
+uint16_t ogSender = 0;
+uint16_t adcValue = 0;
+
+message_struct receivedData;
+message_struct sendData;
+
+// Callback when data is sent
+void OnDataSent(uint8_t *mac_addr, uint8_t sendStatus) {
+  Serial.print("\r\nLast Packet Send Status:\t");
+  if (sendStatus == 0){
+    Serial.println("Delivery success");
+  }
+  else{
+    Serial.println("Delivery fail");
+  }
+}
+
+// Callback function that will be executed when data is received
+void OnDataRecv(uint8_t * mac, uint8_t *incomingData, uint8_t len) {
+  memcpy(&receivedData, incomingData, sizeof(receivedData));
+  Serial.print("Bytes received: ");
+  Serial.println(len);
+  ogSender = receivedData.idOfOgSender;
+  adcValue = receivedData.adcValue;
+}
 void setup(void) {
-  u8g2.begin();
+    // Init Serial Monitor
+  Serial.begin(115200);
+
+  // Set device as a Wi-Fi Station
+  WiFi.mode(WIFI_STA);
+  
+  // Init ESP-NOW
+  if (esp_now_init() != 0) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  // Once ESPNow is successfully Init, we will register for Send CB to
+  // get the status of Trasnmitted packet
+  esp_now_register_send_cb(OnDataSent);
+  esp_now_register_recv_cb(OnDataRecv);
+
+  // Once ESPNow is successfully Init, we will register for Send CB to
+  // get the status of Trasnmitted packet
+  esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
+  
+  // Register peer
+  esp_now_add_peer(broadcastAddress, ESP_NOW_ROLE_COMBO, 1, NULL, 0);
+
+  sendData.idOfOgSender = 1;
 }
 
 void loop(void) {
-  adcValueRead = analogRead(sensorInputPin);
-
-  u8g2.clearBuffer();					// clear the internal memory
-  u8g2.setFont(u8g2_font_u8glib_4_tf );	// choose a suitable font
-  u8g2.drawStr(40,17,"ADC Value");	// write something to the internal memory
-  u8g2.setFont(u8g2_font_luRS14_tr);	// choose a suitable font
-  u8g2.drawUTF8(32,32,u8x8_u16toa(adcValueRead,4));	// write something to the internal memory
-  
-  u8g2.sendBuffer();					// transfer internal memory to the display
-  delay(1000);  
+  adcValueRead = analogRead(analogInPin);
+  sendData.adcValue = 4*adcValueRead;
+  Serial.println(4*adcValueRead);
+  Serial.print("Value gotten from the other:");
+  Serial.println(adcValue);
+    delay(500);
+    // Send message via ESP-NOW
+  esp_now_send(broadcastAddress, (uint8_t *) &sendData, sizeof(sendData));
+  delay(500);
 }
 
