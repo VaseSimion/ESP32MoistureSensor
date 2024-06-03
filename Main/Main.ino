@@ -14,11 +14,12 @@ typedef struct message
 {
   uint16_t idOfOgSender;
   uint16_t adcValue;
+  uint8_t heartBeat;
 } message_struct;
 
 uint16_t ogSender = 0;
 uint16_t adcValue = 0;
-
+uint8_t heartBeat = 0;
 message_struct receivedData;
 message_struct sendData;
 
@@ -40,6 +41,7 @@ void OnDataRecv(uint8_t * mac, uint8_t *incomingData, uint8_t len) {
   Serial.println(len);
   ogSender = receivedData.idOfOgSender;
   adcValue = receivedData.adcValue;
+  heartBeat = receivedData.heartBeat;
 }
 void setup(void) {
     // Init Serial Monitor
@@ -67,11 +69,13 @@ void setup(void) {
   esp_now_add_peer(broadcastAddress, ESP_NOW_ROLE_COMBO, 1, NULL, 0);
 
   sendData.idOfOgSender = 1;
+  sendData.heartBeat = 0;
 }
 
 void loop(void) {
   adcValueRead = analogRead(analogInPin);
   sendData.adcValue = 4*adcValueRead;
+  sendData.heartBeat++;
   Serial.println(4*adcValueRead);
   Serial.print("Value gotten from the other:");
   Serial.println(adcValue);
