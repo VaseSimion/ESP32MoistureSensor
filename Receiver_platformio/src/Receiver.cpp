@@ -116,7 +116,9 @@ void loop(void) {
     u8g2.drawUTF8(110,17,u8x8_u16toa(stored_receivedData[sensor_id].heartBeat,2));	// write something to the internal memory
 
     u8g2.setFont(u8g2_font_8x13B_tr);	// choose a suitable font
-    if(stored_receivedData[sensor_id].adcValue < 1200)
+    u8g2.drawUTF8(50,32,u8x8_u16toa(stored_receivedData[sensor_id].adcValue,4));	// write something to the internal memory
+
+  /*  if(stored_receivedData[sensor_id].adcValue < 1200)
     {
         u8g2.drawStr(12,32,"Not connected");	// write something to the internal memory
     }
@@ -140,7 +142,7 @@ void loop(void) {
     {
         u8g2.drawStr(12,32,"Dry AF");	// write something to the internal memory
     }
-
+*/
   }
   //u8g2.drawUTF8(32,32,u8x8_u16toa(adcValue,4));	// write something to the internal memory
   
