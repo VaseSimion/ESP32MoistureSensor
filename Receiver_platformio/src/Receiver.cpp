@@ -2,7 +2,8 @@
 #include <U8g2lib.h> // from https://github.com/olikraus/u8g2
 #include <esp_now.h>
 #include <WiFi.h>
-  
+#include "esp_wifi.h"
+
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
 #endif
@@ -14,8 +15,10 @@
 
 U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);
 
-uint8_t broadcastAddress[] = {0x10, 0x06, 0x1C, 0xA6, 0xCF, 0x74};
+//uint8_t broadcastAddress[] = {0x10, 0x06, 0x1C, 0xA6, 0xCF, 0x74};
+uint8_t broadcastAddress[] = {0xEC, 0x64, 0xC9, 0xC5, 0x0A, 0x75};
 String success;
+int rssi = 0;
 
 typedef struct message
 {
@@ -50,6 +53,44 @@ void OnDataRecv(const uint8_t *esp_now_recv_cb, const uint8_t *incomingData, int
   stored_receivedData[receivedData.idOfOgSender] = receivedData;
 }
 
+void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
+
+    // All espnow traffic uses action frames which are a subtype of the mgmnt frames so filter out everything else.
+    if (type != WIFI_PKT_MGMT)
+        return;
+
+    static const uint8_t ACTION_SUBTYPE = 0xd0;
+    static const uint8_t ESPRESSIF_OUI[] = {0xEC, 0x64, 0xC9};
+    
+    typedef struct {
+      unsigned frame_ctrl: 16;
+      unsigned duration_id: 16;
+      uint8_t receiver_addr[6];
+      uint8_t sender_oui[3]; // Organizationally Unique Identifier
+      uint8_t sender_uaa[3]; // Universally Administred Address
+      uint8_t filtering_addr[6];
+      unsigned sequence_ctrl: 16;
+      uint8_t addr4[6]; // optional
+    } wifi_ieee80211_mac_hdr_t;
+
+    typedef struct {
+      wifi_ieee80211_mac_hdr_t hdr;
+      uint8_t payload[0]; // network data ended with 4 bytes csum (CRC32) 
+    } wifi_ieee80211_packet_t;
+
+    const wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t *)buf;
+    const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t *)ppkt->payload;
+    const wifi_ieee80211_mac_hdr_t *hdr = &ipkt->hdr;
+
+    // Only continue processing if this is an action frame containing the Espressif OUI.
+    if ((ACTION_SUBTYPE == (hdr->frame_ctrl & 0xFF)) &&
+        (memcmp(hdr->sender_oui, ESPRESSIF_OUI, 3) == 0)) {
+        rssi = ppkt->rx_ctrl.rssi;
+        Serial.print("RSSI: ");
+        Serial.println(rssi);
+     }
+}
+
 void setup(void) {
   // Init Serial Monitor
   Serial.begin(115200);
@@ -80,7 +121,8 @@ void setup(void) {
   }
   // Register for a callback function that will be called when data is received
   esp_now_register_recv_cb(OnDataRecv);
-
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_promiscuous_rx_cb(&promiscuous_rx_cb);
   sendData.idOfOgSender = 2;
 }
 
@@ -116,7 +158,11 @@ void loop(void) {
     u8g2.drawUTF8(110,17,u8x8_u16toa(stored_receivedData[sensor_id].heartBeat,2));	// write something to the internal memory
 
     u8g2.setFont(u8g2_font_8x13B_tr);	// choose a suitable font
-    u8g2.drawUTF8(50,32,u8x8_u16toa(stored_receivedData[sensor_id].adcValue,4));	// write something to the internal memory
+    //u8g2.drawUTF8(50,32,u8x8_u16toa(stored_receivedData[sensor_id].adcValue,4));	// write something to the internal memory
+
+    char str_rssi[4];
+    sprintf(str_rssi, "%d", rssi);
+    u8g2.drawUTF8(50,32,str_rssi);	// write something to the internal memory
 
   /*  if(stored_receivedData[sensor_id].adcValue < 1200)
     {
