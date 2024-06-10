@@ -19,6 +19,7 @@ int adcValueRead = 0;
 int rssi = 0;
 
 uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
+uint8_t ESP_OUI[] = {0x18, 0xFE, 0x34};
 String success;
 
 typedef enum {
@@ -102,6 +103,7 @@ typedef struct {
      uint8_t addr2[6]; /* sender address */
      uint8_t addr3[6]; /* filtering address */
      unsigned sequence_ctrl:16;
+     unsigned category:8;
      uint8_t addr4[6]; /* optional */
   } wifi_ieee80211_mac_hdr_t;
 
@@ -122,10 +124,13 @@ typedef struct {
 
   // Only continue processing if this is an action frame containing the Espressif OUI.
     if ((ACTION_SUBTYPE == (hdr->frame_ctrl & 0xFF)) &&
-        (memcmp(hdr->addr2, broadcastAddress, 6) == 0)) {
+        (memcmp(hdr->addr4, ESP_OUI, 3) == 0)) {
         rssi = package->rx_ctrl.rssi;
         heartBeat = data[11];
         ogSender = data[7];
+        //for(int i=0;i<len;i++)
+        //  Serial.print(buf[i],HEX);
+        //Serial.println();
 /*        Serial.println(data[0]);
         Serial.println(data[1]);
         Serial.println(data[2]);

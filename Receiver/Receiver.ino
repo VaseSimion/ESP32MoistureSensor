@@ -17,6 +17,8 @@ U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, 
 //uint8_t broadcastAddress[] = {0x10, 0x06, 0x1C, 0xA6, 0xCF, 0x74};
 //uint8_t broadcastAddress[] = {0xEC, 0x64, 0xC9, 0xC5, 0x0A, 0x75}; //on sensor
 uint8_t broadcastAddress[] = {0x48, 0xE7, 0x29, 0x6D, 0x38, 0xDC}; //on screen
+uint8_t ESP_OUI[] = {0x18, 0xFE, 0x34};
+
 String success;
 int rssi = 0;
 
@@ -68,6 +70,7 @@ void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
       uint8_t sender_addr[6]; // Organizationally Unique Identifier
       uint8_t filtering_addr[6];
       unsigned sequence_ctrl: 16;
+      unsigned category:8;
       uint8_t addr4[6]; // optional
     } wifi_ieee80211_mac_hdr_t;
 
@@ -82,7 +85,7 @@ void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
 
     // Only continue processing if this is an action frame containing the Espressif OUI.
     if ((ACTION_SUBTYPE == (hdr->frame_ctrl & 0xFF)) &&
-        (memcmp(hdr->sender_addr, broadcastAddress, 6) == 0)) {
+        (memcmp(hdr->addr4, ESP_OUI, 3) == 0)) {
         rssi = ppkt->rx_ctrl.rssi;
         Serial.print("RSSI: ");
         Serial.println(rssi);
