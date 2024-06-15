@@ -2,12 +2,12 @@
 #include <espnow.h>
 #include "Arduino.h"
 
-#define SENDER_ID 1
+#define SENDER_ID 0
 //This reads the value and sends it through ESP now and it's done for ESP8266
 //It gets values from ESP Now but it ignores them for the moment
 
 const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
-const int sensorPowerPin = 4; // ESP8266 Digital Pin D2 = GPIO4
+const int sensorPowerPin = 12; // ESP8266 Digital Pin D6 = GPIO12
 int adcValueRead = 0;
 
 uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
@@ -80,6 +80,7 @@ void loop(void) {
   digitalWrite(sensorPowerPin, HIGH);
   delay(100);
   adcValueRead = analogRead(analogInPin);
+//  delay(30);
   digitalWrite(sensorPowerPin, LOW);
   sendData.adcValue = 4*adcValueRead;
   sendData.heartBeat++;
