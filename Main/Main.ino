@@ -19,6 +19,7 @@ int adcValueRead = 0;
 int rssi = 0;
 
 uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
+uint8_t personalAddress[] = {0x48, 0xE7, 0x29, 0x6D, 0x38, 0xDC};
 uint8_t ESP_OUI[] = {0x18, 0xFE, 0x34};
 String success;
 
@@ -68,28 +69,26 @@ void OnDataRecv(uint8_t * mac, uint8_t *incomingData, uint8_t len) {
 
 void promiscuous_rx_cb(uint8_t *buf, uint16 len) { //This might not be accurate but it is the right size
 typedef struct {
-    signed rssi:8;                /**< Received Signal Strength Indicator(RSSI) of packet. unit: dBm */
-    unsigned rate:5;              /**< PHY rate encoding of the packet. Only valid for non HT(11bg) packet */
-    unsigned :1;                  /**< reserved */
-    unsigned sig_mode:2;          /**< Protocol of the reveived packet, 0: non HT(11bg) packet; 1: HT(11n) packet; 3: VHT(11ac) packet */
-    unsigned :16;                 /**< reserved */
-    unsigned mcs:7;               /**< Modulation Coding Scheme. If is HT(11n) packet, shows the modulation, range from 0 to 76(MSC0 ~ MCS76) */
-    unsigned cwb:1;               /**< Channel Bandwidth of the packet. 0: 20MHz; 1: 40MHz */
-    unsigned :12;                 /**< reserved */
-    unsigned smoothing:1;         /**< Set to 1 indicates that channel estimate smoothing is recommended.
-                                       Set to 0 indicates that only per-carrierindependent (unsmoothed) channel estimate is recommended. */
-    unsigned not_sounding:1;      /**< Set to 0 indicates that PPDU is a sounding PPDU. Set to 1indicates that the PPDU is not a sounding PPDU.
-                                       sounding PPDU is used for channel estimation by the request receiver */
-    unsigned :1;                  /**< reserved */
-    unsigned aggregation:1;       /**< Aggregation. 0: MPDU packet; 1: AMPDU packet */
-    unsigned stbc:2;              /**< Space Time Block Code(STBC). 0: non STBC packet; 1: STBC packet */
-    unsigned fec_coding:1;        /**< Forward Error Correction(FEC). Flag is set for 11n packets which are LDPC */
-    unsigned sgi:1;               /**< Short Guide Interval(SGI). 0: Long GI; 1: Short GI */
-    unsigned noise_floor:8;   /**< noise floor */
-    unsigned ampdu_cnt:8;     /**< ampdu cnt */
-    unsigned channel:4;       /**< which channel this packet in */
-    unsigned :12;             /**< reserve */
-  } wifi_pkt_rx_ctrl_t;
+    signed rssi:8;             /**< signal intensity of packet */
+    unsigned rate:5;
+    unsigned :3;               /**< reserve */
+    unsigned sig_mode:2;       /**< 0:is not 11n packet; 1:is 11n packet */
+    unsigned :1;               /**< reserve */
+    unsigned mcs:7;            /**< if is 11n packet, shows the modulation(range from 0 to 76, refer to ieee 802.11n spec) */
+    unsigned cwb:1;            /**< if is 11n packet, shows the bandwidth(0:20MHz, 1:40MHz) */
+    unsigned :8;               /**< reserve */
+    unsigned smoothing:1;      /**< reserve */
+    unsigned not_sounding:1;   /**< reserve */
+    unsigned :1;               /**< reserve */
+    unsigned aggregation:1;    /**< Aggregation */
+    unsigned stbc:2;           /**< STBC */
+    unsigned fec_coding:1;     /**< if is 11n packet, shows if is LDPC or BCC */
+    unsigned sgi:1;            /**< SGI */
+    unsigned noise_floor:8;    /**< noise floor */
+    unsigned ampdu_cnt:8;      /**< ampdu cnt */
+    unsigned channel:4;        /**< which channel this packet in */
+    unsigned :12;              /**< reserve */
+} wifi_pkt_rx_ctrl_t;
 
 typedef struct {
     wifi_pkt_rx_ctrl_t rx_ctrl; /**< metadata header */
@@ -124,12 +123,15 @@ typedef struct {
 
   // Only continue processing if this is an action frame containing the Espressif OUI.
     if ((ACTION_SUBTYPE == (hdr->frame_ctrl & 0xFF)) &&
-        (memcmp(hdr->addr4, ESP_OUI, 3) == 0)) {
+        (memcmp(hdr->addr2, broadcastAddress, 6) != 0) &&
+        (memcmp(hdr->addr2, personalAddress, 6) != 0) &&
+        (memcmp(hdr->addr4, ESP_OUI, 3) == 0)) 
+        {
         rssi = package->rx_ctrl.rssi;
         heartBeat = data[11];
         ogSender = data[7];
         //for(int i=0;i<len;i++)
-        //  Serial.print(buf[i],HEX);
+        //  Serial.printf("%02X ", buf[i]);
         //Serial.println();
 /*        Serial.println(data[0]);
         Serial.println(data[1]);
