@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <U8g2lib.h> // from https://github.com/olikraus/u8g2
 #include <esp_now.h>
+#include <esp_wifi.h>
 #include <WiFi.h>
 
 #ifdef U8X8_HAVE_HW_SPI
@@ -22,10 +23,12 @@ typedef struct message
 {
   uint16_t idOfOgSender;
   uint16_t adcValue;
+  uint8_t heartBeat;
 } message_struct;
 
 uint16_t ogSender = 0;
 uint16_t adcValue = 0;
+uint8_t heartBeat = 0;
 
 message_struct receivedData;
 message_struct sendData;
@@ -50,6 +53,7 @@ void OnDataRecv(const esp_now_recv_info_t *esp_now_recv_cb, const uint8_t *incom
   Serial.println(len);
   ogSender = receivedData.idOfOgSender;
   adcValue = receivedData.adcValue;
+  heartBeat = receivedData.heartBeat;
 }
 
 void setup(void) {
@@ -82,13 +86,17 @@ void setup(void) {
   }
   // Register for a callback function that will be called when data is received
   esp_now_register_recv_cb(OnDataRecv);
-
-  sendData.idOfOgSender = 2;
+  
+ // esp_wifi_set_protocol( WIFI_IF_AP, WIFI_PROTOCOL_LR );
+  
+  sendData.heartBeat = 0;
+  sendData.idOfOgSender = 9;
 }
 
 void loop(void) {
   static int i = 1;
   sendData.adcValue = i;
+  sendData.heartBeat++;
   i++;
 
   // Send message via ESP-NOW
