@@ -123,8 +123,6 @@ typedef struct {
 
   // Only continue processing if this is an action frame containing the Espressif OUI.
     if ((ACTION_SUBTYPE == (hdr->frame_ctrl & 0xFF)) &&
-        (memcmp(hdr->addr2, broadcastAddress, 6) != 0) &&
-        (memcmp(hdr->addr2, personalAddress, 6) != 0) &&
         (memcmp(hdr->addr4, ESP_OUI, 3) == 0)) 
         {
         rssi = package->rx_ctrl.rssi;
@@ -191,8 +189,6 @@ void setup(void) {
 void loop(void) {
   sendData.heartBeat++;
     delay(500);
-    // Send message via ESP-NOW
-  esp_now_send(broadcastAddress, (uint8_t *) &sendData, sizeof(sendData));
 
   {
     u8g2.clearBuffer();					// clear the internal memory

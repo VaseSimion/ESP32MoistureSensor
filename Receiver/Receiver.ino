@@ -30,6 +30,9 @@ typedef struct message
   uint8_t heartBeat;
 } message_struct;
 
+int heartBeat;
+int ogSender;
+
 message_struct receivedData;
 message_struct sendData;
 message_struct stored_receivedData[NUMBER_OF_SENDERS];
@@ -80,19 +83,22 @@ void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
       uint8_t payload[0]; // network data ended with 4 bytes csum (CRC32) 
     } wifi_ieee80211_packet_t;
 
-    const wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t *)buf;
-    const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t *)ppkt->payload;
-    const wifi_ieee80211_mac_hdr_t *hdr = &ipkt->hdr;
+    const wifi_promiscuous_pkt_t *package = (wifi_promiscuous_pkt_t *)buf;
+
+   const wifi_ieee80211_packet_t *pk = (wifi_ieee80211_packet_t*)package->payload;
+
+   const wifi_ieee80211_mac_hdr_t *hdr = &pk->hdr;
+   const uint8_t *data = pk->payload;
 
     // Only continue processing if this is an action frame containing the Espressif OUI.
     if ((ACTION_SUBTYPE == (hdr->frame_ctrl & 0xFF)) &&
-        (memcmp(hdr->sender_addr, broadcastAddress, 6) != 0) &&
-        (memcmp(hdr->sender_addr, personalAddress, 6) != 0) &&
         (memcmp(hdr->addr4, ESP_OUI, 3) == 0)) 
       {
-        rssi = ppkt->rx_ctrl.rssi;
+        rssi = package->rx_ctrl.rssi;
         Serial.print("RSSI: ");
         Serial.println(rssi);
+        heartBeat = data[11];
+        ogSender = data[7];
       }
 }
 
@@ -134,25 +140,14 @@ void setup(void) {
 
 void loop(void) {
   sendData.heartBeat++;
-
-  // Send message via ESP-NOW
-  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &sendData, sizeof(sendData));
-   
-  if (result == ESP_OK) {
-    Serial.println("Sent with success");
-  }
-  else {
-    Serial.println("Error sending the data");
-  }
-
   {
     u8g2.clearBuffer();					// clear the internal memory
     u8g2.setFont(u8g2_font_u8glib_4_tf );	// choose a suitable font
     u8g2.drawStr(20,17,"ESP number");	// write something to the internal memory
 
-    u8g2.drawUTF8(90,17,u8x8_u16toa(stored_receivedData[1].idOfOgSender,2));	// write something to the internal memory
+    u8g2.drawUTF8(90,17,u8x8_u16toa(ogSender, 2));	// write something to the internal memory
 
-    u8g2.drawUTF8(110,17,u8x8_u16toa(stored_receivedData[1].heartBeat,2));	// write something to the internal memory
+    u8g2.drawUTF8(110,17,u8x8_u16toa(heartBeat,2));	// write something to the internal memory
 
     u8g2.setFont(u8g2_font_8x13B_tr);	// choose a suitable font
     //u8g2.drawUTF8(50,32,u8x8_u16toa(stored_receivedData[sensor_id].adcValue,4));	// write something to the internal memory
