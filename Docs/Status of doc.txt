@@ -1,0 +1,13 @@
+Distance testing in nature
+ - Tested distance with Line of sight 200m
+ - Signal is a bit better in communication between ESP32 to ESP32 compared to using ESP 8266
+ - Signal is influenced a lot of antena positioning
+ - In forest 50 m seem to be a solid distance between ESP32s, but more is not really tested
+ - Long range doesn't seem to do much when it comes to signal power
+
+Powering the sensor
+ - An BC 546 is used to power the moisture sensor. The sensor positive is connected to 3V3, and GND is connected to the collector of the transistor
+ - D6 is connected through a 1k resistor to the base of the transistor and the GND of the ESP is connected to the emitor of the transistor
+
+
+The sensor with the regulator removed soldered to one esp gives bigger range than the rest.This needs to be investigated
