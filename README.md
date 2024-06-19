@@ -1,26 +1,19 @@
-# ESP Moisture Sensor
+Project Overview
+This project consists of three main components, each represented by a C++ file: SimpleESP8266Sender.cpp, DataRepeater.cpp, and DataHub.cpp.
 
-This repository contains the source code for a project intended to gather moisture sensor data from a mesh of ESP8266/ESP32.
+SimpleESP8266Sender.cpp
+This file contains the code for a simple sender device using the ESP8266 microcontroller. The sender sends data packets containing an ID, an ADC value, and a heartbeat signal. The sender also has callback functions for when data is sent and received. The data sent status is printed to the serial monitor.
 
-## Overview
+DataRepeater.cpp
+The DataRepeater.cpp file is responsible for receiving data from the sender, and then re-transmitting that data. It also contains callback functions for when data is sent and received. The status of the data sent is stored in a string variable and the received data is stored in a struct.
 
-The program reads a value from a moisture sensor and sends it through ESP-NOW. This is done on the sender end. On the receiver end the program monitors this and sends it to a place where it can be analyzed and processed (this part is not yet implemented).  
+DataHub.cpp
+The DataHub.cpp file represents the main hub in the network. It receives data from the repeater and stores it in an array of structs. The hub also sends its own data packets (with the ADC value incrementing each time a packet is sent for now as placeholder). The hub uses a U8g2 library to display the received data on an SSD1306 OLED display.
 
-## Files
+Setup
+To set up this project, you will need to install the ESP-NOW and U8g2 libraries in your platformio, using the arduino framework. You will also need to configure the broadcast addresses in each file to match your network setup.
 
-## Setup
+Usage
+Upload the corresponding file to each ESP8266/Esp32 device in your network. The sender should be running SimpleESP8266Sender.cpp, the repeater should be running DataRepeater.cpp, and the hub should be running DataHub.cpp. Once the devices are powered on and within range of each other, they will begin transmitting and receiving data.
 
-1. Clone this repository.
-2. Open the project in your preferred IDE (e.g., Visual Studio Code, PlatformIO).
-3. Build and upload the code to your ESP8266/ESP32 device.
-
-## Usage
-Once the code is uploaded to the ESP8266 device, it will start reading the moisture sensor value and send it through ESP-NOW. The receiver part will display the received data on an OLED display.
-
-## Contributing
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change. Please make sure to update tests as appropriate.
-
-## License
-
-[MIT](https://choosealicense.com/licenses/mit/)
+There are 2 arduino files (.ino) which are used for testing and fast prototyping
