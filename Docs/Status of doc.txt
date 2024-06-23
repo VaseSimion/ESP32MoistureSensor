@@ -11,3 +11,11 @@ Powering the sensor
 
 
 The sensor with the regulator removed soldered to one esp gives bigger range than the rest.This needs to be investigated
+
+Energy calculation
+D1 clone consumes 67mA when wifi is on
+It takes 100ms to turn on, enable esp now and send a message
+Sensor needs at least 20ms to be powered before it can measure
+164uA consumes the D1 while in deep sleep 
+GPIO7 needs to be pulled up with 10k to 3.3V
+Initializing filesystem and reading from a file with 4 lines takes 4-5 ms

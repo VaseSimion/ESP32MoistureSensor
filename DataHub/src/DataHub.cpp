@@ -2,7 +2,10 @@
 #include <U8g2lib.h> // from https://github.com/olikraus/u8g2
 #include <esp_now.h>
 #include <WiFi.h>
-  
+#include <esp_wifi.h>
+#include "LittleFS.h"
+#include <ESP32Time.h> // from https://github.com/fbiego/ESP32Time
+
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
 #endif
@@ -11,15 +14,18 @@
 #endif
 
 #define NUMBER_OF_SENDERS 2
+#define MAC_SIZE 6
 
 U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);
 
 uint8_t broadcastAddress[] = {0x10, 0x06, 0x1C, 0xA6, 0xCF, 0x74};
 String success;
 
+ESP32Time rtc(3600);  // offset in seconds GMT+1
+
 typedef struct message
 {
-  uint16_t idOfOgSender;
+  uint8_t macOfOgSender[MAC_SIZE];
   uint16_t adcValue;
   uint8_t heartBeat;
 } message_struct;
@@ -47,7 +53,20 @@ void OnDataRecv(const uint8_t *esp_now_recv_cb, const uint8_t *incomingData, int
   memcpy(&receivedData, incomingData, sizeof(receivedData));
   Serial.print("Bytes received: ");
   Serial.println(len);
-  stored_receivedData[receivedData.idOfOgSender] = receivedData;
+  for(int i = 0; i < MAC_SIZE; i++){
+    Serial.print(receivedData.macOfOgSender[i], HEX);
+    if(i < MAC_SIZE - 1)
+    {
+      Serial.print(":");
+    }
+  }
+  Serial.println();
+  
+  memcpy(&stored_receivedData[0], &receivedData, sizeof(receivedData));
+  memcpy(&stored_receivedData[1], &receivedData, sizeof(receivedData));
+
+  Serial.print("Heartbeat: ");
+  Serial.println(receivedData.heartBeat);
 }
 
 void setup(void) {
@@ -57,7 +76,13 @@ void setup(void) {
   u8g2.begin();
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
+
+  if(!LittleFS.begin(true)){
+    Serial.println("An Error has occurred while mounting LittleFS");
+    return;
+  }
   
+
   // Init ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
@@ -81,13 +106,30 @@ void setup(void) {
   // Register for a callback function that will be called when data is received
   esp_now_register_recv_cb(OnDataRecv);
 
-  sendData.idOfOgSender = 2;
+  esp_wifi_get_mac(WIFI_IF_STA, sendData.macOfOgSender);
+
+  rtc.setTime(00, 24, 12, 22, 6, 2024);  // 17th Jan 2021 15:24:30
 }
 
 void loop(void) {
   static int i = 1;
   static int sensor_id = 0;
   
+
+  File file = LittleFS.open("/text.txt");
+  if(!file){
+    Serial.println("Failed to open file for reading");
+    return;
+  }
+  
+  Serial.println("File Content:");
+  while(file.available()){
+    Serial.write(file.read());
+  }
+  file.close();
+
+  Serial.println(rtc.getTime());          //  (String) 15:24:38
+
   sendData.adcValue = i;
   i++;
   sensor_id++;
@@ -111,7 +153,7 @@ void loop(void) {
     u8g2.setFont(u8g2_font_u8glib_4_tf );	// choose a suitable font
     u8g2.drawStr(20,17,"Sensor number");	// write something to the internal memory
 
-    u8g2.drawUTF8(90,17,u8x8_u16toa(stored_receivedData[sensor_id].idOfOgSender,2));	// write something to the internal memory
+    u8g2.drawUTF8(90,17,u8x8_u16toa(stored_receivedData[sensor_id].macOfOgSender[0],2));	// write something to the internal memory
 
     u8g2.drawUTF8(110,17,u8x8_u16toa(stored_receivedData[sensor_id].heartBeat,2));	// write something to the internal memory
 
