@@ -1,28 +1,49 @@
-# README.md
+# BLE Sensor Network
 
-## Project Overview
+This repository contains the source code for a simple BLE (Bluetooth Low Energy) sensor network using ESP32. The network is divided into two main components: DataSender and DataHub.
 
-This project consists of three main components, each represented by a C++ file: `SimpleESP8266Sender.cpp`, `DataRepeater.cpp`, and `DataHub.cpp`.
+## DataSender.cpp
 
-### SimpleESP8266Sender.cpp
+This component is responsible for reading sensor data and sending it over BLE. It initializes a BLE server on an ESP32 device, advertises a custom service and characteristic, and updates the characteristic with sensor data at regular intervals.
 
-This file contains the code for a simple sender device using the ESP8266 microcontroller. The sender sends data packets containing an ID, an ADC value, and a heartbeat signal. The sender also has callback functions for when data is sent and received. The data sent status is printed to the serial monitor.
+Key Features:
+- Initializes and starts a BLE server with a custom service and characteristic.
+- Reads sensor data and updates the BLE characteristic.
+- Handles BLE connections and disconnections.
 
-### DataRepeater.cpp
+## DataHub.cpp
 
-The `DataRepeater.cpp` file is responsible for receiving data from the sender, and then re-transmitting that data. It also contains callback functions for when data is sent and received. The status of the data sent is stored in a string variable and the received data is stored in a struct.
+This component acts as a central device that scans for, connects to, and reads data from BLE peripheral devices advertising the custom service and characteristic defined in DataSender.
 
-### DataHub.cpp
+Key Features:
+- Scans for BLE devices advertising the custom service.
+- Connects to devices and reads the advertised custom characteristic.
+- Displays the sensor data on an OLED display connected to the ESP32.
 
-The `DataHub.cpp` file represents the main hub in the network. It receives data from the repeater and stores it in an array of structs. The hub also sends its own data packets, with the ADC value incrementing each time a packet is sent (for the moment as a placeholder). The hub uses a U8g2 library to display the received data on an SSD1306 OLED display.
+## Hardware Requirements
 
-## Setup
+- Two ESP32 development boards
+- Analog sensor (for DataSender, simulated by ADC pin)
+- SSD1306 OLED display (for DataHub)
 
-To set up this project, you will need to install the U8g2 libraries in your platformio in Vscode. You will also need to configure the broadcast addresses in each file to match your network setup.
+## Software Dependencies
 
-## Usage
+- Arduino IDE
+- ESP32 BLE Arduino library
+- U8g2 library for OLED display
 
-Upload the corresponding file to each ESP8266 device in your network. The sender should be running `SimpleESP8266Sender.cpp`, the repeater should be running `DataRepeater.cpp`, and the hub should be running `DataHub.cpp`. Once the devices are powered on and within range of each other, they will begin transmitting and receiving data.
+## Setup and Running
 
-## .Ino files
-There are 2 arduino files (.ino) which are used for testing and fast prototyping
+1. **DataSender Setup:**
+   - Connect the analog sensor to pin 34 of the ESP32.
+   - Flash `DataSender.cpp` to the ESP32 device.
+
+2. **DataHub Setup:**
+   - Connect the OLED display to the ESP32 using I2C.
+   - Flash `DataHub.cpp` to a second ESP32 device.
+
+3. Power both ESP32 devices. The DataHub will start scanning for DataSender devices and display the sensor data on the OLED screen.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
