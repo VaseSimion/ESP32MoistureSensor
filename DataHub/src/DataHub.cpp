@@ -1,9 +1,6 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+#include "NimBLEDevice.h"
 
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -16,89 +13,58 @@ U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, 
 
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define MAX_DEVICES 5
-#define interval 30000
 
-BLEScan* pBLEScan;
-BLEAddress* knownDevices[MAX_DEVICES] = {nullptr};
-int deviceCount = 0;
+
 int sensorValue = 0;
 unsigned long previousMillis = 0;
 
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-      if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(BLEUUID(SERVICE_UUID))) {
-        BLEAddress deviceAddress = advertisedDevice.getAddress();
-        bool known = false;
-        for (int i = 0; i < deviceCount; i++) {
-          if (knownDevices[i] != nullptr && *knownDevices[i] == deviceAddress) {
-            known = true;
-            break;
-          }
-        }
-        if (!known && deviceCount < MAX_DEVICES) {
-          knownDevices[deviceCount++] = new BLEAddress(deviceAddress);
-        }
-      }
-    }
-};
+
 
 void setup(void) {
   Serial.begin(115200);
   u8g2.begin();
-
-  BLEDevice::init("ESP32 Central");
-  pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setActiveScan(true);
-  pBLEScan->setInterval(100);
-  pBLEScan->setWindow(99);
-
-  previousMillis = millis();
+  NimBLEDevice::init("ESP HUB");
 }
 
 void loop(void) {
   
+  long freeMem = ESP.getFreeHeap(); Serial.print("Remaining memory "); Serial.println(freeMem);
   unsigned long currentMillis = millis();
-  // If the interval has passed, update the characteristic
-  if (currentMillis - previousMillis >= interval) {
-  
-    previousMillis = currentMillis;
-    Serial.println("Scanning...");
-    BLEScanResults foundDevices = pBLEScan->start(3, false);
-    Serial.print("Devices found: ");
-    Serial.println(foundDevices.getCount());
-    pBLEScan->clearResults();
-  }
+  NimBLEScan *pScan = NimBLEDevice::getScan();
+  NimBLEScanResults results = pScan->start(1);
 
-  for (int i = 0; i < deviceCount; i++) {
-    if (knownDevices[i] == nullptr) continue;
-    
-    Serial.println("Connecting to device...");
-    Serial.println(knownDevices[i]->toString().c_str());
-    
-    BLEClient* pClient = BLEDevice::createClient();
-    if (pClient->connect(*knownDevices[i])) {
-      BLERemoteService* pRemoteService = pClient->getService(SERVICE_UUID);
-      if (pRemoteService != nullptr) {
-        BLERemoteCharacteristic* pRemoteCharacteristic = pRemoteService->getCharacteristic(CHARACTERISTIC_UUID);
-        if (pRemoteCharacteristic != nullptr) {
-          std::string value = pRemoteCharacteristic->readValue();
+  NimBLEUUID serviceUuid(SERVICE_UUID);
+  
+  for(int i = 0; i < results.getCount(); i++) {
+      NimBLEAdvertisedDevice device = results.getDevice(i);
+      
+      if (device.isAdvertisingService(serviceUuid)) {
+          NimBLEClient *pClient = NimBLEDevice::createClient();
           
-          if (value.length() == 4) {
-            // Convert byte array to integer
-            sensorValue = ((uint8_t)value[0] << 24) | ((uint8_t)value[1] << 16) | ((uint8_t)value[2] << 8) | (uint8_t)value[3];
-            Serial.printf("Sensor %s value: %d\n", knownDevices[i]->toString().c_str(), sensorValue);
+          if (pClient->connect(&device)) {
+              NimBLERemoteService *pService = pClient->getService(serviceUuid);
+              
+              if (pService != nullptr) {
+                  NimBLERemoteCharacteristic *pCharacteristic = pService->getCharacteristic(CHARACTERISTIC_UUID);
+                  
+                  if (pCharacteristic != nullptr) {
+                      std::string value = pCharacteristic->readValue();
+        
+                      if (value.length() == 4) {
+                        // Convert byte array to integer
+                        sensorValue = ((uint8_t)value[0] << 24) | ((uint8_t)value[1] << 16) | ((uint8_t)value[2] << 8) | (uint8_t)value[3];
+                        Serial.printf("Sensor %s value: %d\n", device.getAddress().toString().c_str(), sensorValue);
+                      } else {
+                        Serial.println("Received value is not of expected length.");
+                      }
+                      // print or do whatever you need with the value
+                  }
+              }
           } else {
-            Serial.println("Received value is not of expected length.");
+          // failed to connect
           }
-        }
+          NimBLEDevice::deleteClient(pClient);
       }
-      pClient->disconnect();
-    } else {
-      Serial.println("Failed to connect");
-    }
-    delay(100);  // Short delay between connection attempts
   }
 
   u8g2.clearBuffer();
@@ -110,5 +76,5 @@ void loop(void) {
   u8g2.drawUTF8(50,32,u8x8_u16toa(sensorValue,4));
   u8g2.sendBuffer();
 
-  delay(5000);  // Reduced delay to 5 seconds
+  delay(1000);  // Reduced delay to 5 seconds
 }
