@@ -1,77 +1,124 @@
-#include <Arduino.h>
-#include "NimBLEDevice.h"
+#include <WiFi.h>
+#include <esp_wifi.h>
+#include <esp_now.h>
+#include <LittleFS.h>
 
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define ADC_PIN 34
 
 #define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
 #define TIME_TO_SLEEP  3        /* Time ESP32 will go to sleep (in seconds) */
 
-uint8_t adcValueBytes[4] = {0, 0, 0, 0};
-NimBLECharacteristic *pCharacteristic = nullptr;
-bool isNotified = false;
-uint16_t ogmillis = 0;
+// REPLACE WITH YOUR RECEIVER MAC Address
+uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
+// uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xCE, 0x3C}; //sender
 
-class MyCallbacks: public NimBLECharacteristicCallbacks {
-    void onRead(NimBLECharacteristic* pCharacteristic){
-        Serial.print("Characteristic read by client: ");
-        Serial.println(pCharacteristic->getUUID().toString().c_str());
-        isNotified = true;
-        Serial.println("Going to sleep now");
-        Serial.println("Time elapsed: ");
-        Serial.println(millis() - ogmillis);
-    }
-};
+uint16_t adc_value = 0;
+uint16_t og_millis = 0;
+
+typedef struct struct_message {
+  char name[32];
+  uint16_t adc_value;
+  uint8_t heartBeat = 0;
+} struct_message;
+
+// Create a struct_message called myData
+struct_message myData;
+
+esp_now_peer_info_t peerInfo;
+
+// callback when data is sent
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+    Serial.print("\r\nLast Packet Send Status:\t");
+    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+    Serial.println("Going to sleep now");
+    Serial.println("Time: " + String(millis() - og_millis));
+    og_millis = millis();
+    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+    esp_deep_sleep_start();
+}
 
 void setup() {
-    ogmillis = millis();
+  og_millis = millis();
+  // Init Serial Monitor
   Serial.begin(115200);
-    NimBLEDevice::init("ESP32 Sensor");
-    
-    NimBLEServer *pServer = NimBLEDevice::createServer();
-    NimBLEService *pService = pServer->createService(SERVICE_UUID);
-    pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID,
-                                               NIMBLE_PROPERTY::READ |
-                                               NIMBLE_PROPERTY::WRITE |
-                                               NIMBLE_PROPERTY::NOTIFY
-                                              );
-    
-    pCharacteristic->setCallbacks(new MyCallbacks());
+ 
+  // Set device as a Wi-Fi Station
+  WiFi.mode(WIFI_STA);
 
-    pService->start();
-    pCharacteristic->setValue(adcValueBytes, 4);
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
 
-    NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(SERVICE_UUID); 
-    pAdvertising->start(); 
+  // Once ESPNow is successfully Init, we will register for Send CB to
+  // get the status of Trasnmitted packet
+  esp_now_register_send_cb(OnDataSent);
+  
+  // Register peer
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  
+  // Add peer        
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  if(!LittleFS.begin(true)){
+    Serial.println("An Error has occurred while mounting LittleFS");
+    return;
+  }
+
+  File file = LittleFS.open("/heartbeat.txt");
+  if(!file){
+    Serial.println("Failed to open file for reading");
+    return;
+  }
+
+  String content = file.readString();
+  file.close();
+  
+  myData.heartBeat = content.toInt();
+  
+  // Print the current heartbeat value
+  Serial.print("Current heartbeat: ");
+  Serial.println(myData.heartBeat);
+  
+  // Increment the heartbeat
+  myData.heartBeat++;
+  
+  // Save the new heartbeat value
+  file = LittleFS.open("/heartbeat.txt", "w");
+  if(!file){
+    Serial.println("Failed to open file for writing");
+    return;
+  }
+  
+  if(file.print(myData.heartBeat)){
+    Serial.println("Heartbeat updated successfully");
+  } else {
+    Serial.println("Failed to update heartbeat");
+  }
+  file.close();
+
+  file.close();
 }
 
 void loop() {
-    if( isNotified == false)
-    {
-        delay(300);
-        long freeMem = ESP.getFreeHeap(); Serial.print("Remaining memory "); Serial.println(freeMem);
-        // Read ADC value
-        int adcValue = analogRead(ADC_PIN);
-        
-        // Convert integer to byte array
-        uint8_t adcValueBytes[4];
-        adcValueBytes[0] = (adcValue >> 24) & 0xFF;
-        adcValueBytes[1] = (adcValue >> 16) & 0xFF;
-        adcValueBytes[2] = (adcValue >> 8) & 0xFF;
-        adcValueBytes[3] = adcValue & 0xFF;
-
-        // Update characteristic value
-        pCharacteristic->setValue(adcValueBytes, 4);
-        pCharacteristic->notify();
-        
-        Serial.print("ADC Value: ");
-        Serial.println(adcValue);
+    delay(150);
+      // Set values to send
+    strcpy(myData.name, "Esp Sender");
+    myData.adc_value = analogRead(ADC_PIN);
+    myData.heartBeat++;
+    // Send message via ESP-NOW
+    esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &myData, sizeof(myData));
+    
+    if (result == ESP_OK) {
+        Serial.println("Sent with success");
     }
-    else
-    {   
-        esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-        esp_deep_sleep_start();
+    else {
+        Serial.println("Error sending the data");
     }
 }
