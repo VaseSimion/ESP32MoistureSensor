@@ -12,6 +12,7 @@
 #include <Wire.h>
 #endif
 #define MAC_SIZE 6
+#define PAIRING_PIN 4
 
 U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);
 
@@ -74,6 +75,8 @@ void setup(void) {
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
 
+  pinMode(PAIRING_PIN, INPUT);
+
   // Init ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
@@ -92,33 +95,60 @@ void loop(void) {
         previous_state = current_state;
       }
       Serial.println("Pairing");
+      u8g2.clearBuffer();
+      u8g2.setFont(u8g2_font_8x13B_tr);
+      u8g2.drawStr(40,22,"Pairing");
+      u8g2.sendBuffer();
+      delay(10000);
       current_state = NORMAL; //currently not using pairing
       break;
 
     case NORMAL:
+      static int update_counter = 0;
+
       if(current_state != previous_state){
         Serial.println("Just entered normal state");
         previous_state = current_state;
       }
 
-      if(received_data.size() == 0){
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_u8glib_4_tf);
-        u8g2.drawStr(20,17,"No data received");
-        u8g2.sendBuffer();
-        delay(3000);
+      if (digitalRead(PAIRING_PIN) == HIGH){
+        current_state = PAIRING;
       }
+      else{
+        if(received_data.size() == 0){
+          u8g2.clearBuffer();
+          u8g2.setFont(u8g2_font_u8glib_4_tf);
+          u8g2.drawStr(20,17,"No data received");
+          u8g2.sendBuffer();
+        }
+        else{
+          if(update_counter % 3 != 0){
+            u8g2.clearBuffer();
+          }
+          else{
+            saved_values received = received_data[int(update_counter / 3)];
+            Serial.print("MAC address: ");
+            for(int i = 0; i < MAC_SIZE; i++){
+              Serial.print(received.mac[i], HEX);
+              Serial.print(":");
+            }
+            Serial.println();
+            u8g2.clearBuffer();
+            u8g2.setFont(u8g2_font_u8glib_4_tf);
+            u8g2.drawStr(20,17,"Sensor number");
+            u8g2.drawUTF8(90,17,u8x8_u16toa(received.data.heartBeat,3));
+            u8g2.drawUTF8(110,17,u8x8_u16toa(received.mac[5],3));
+            u8g2.setFont(u8g2_font_8x13B_tr);
+            u8g2.drawUTF8(50,32,u8x8_u16toa(received.data.adc_value,4));
+            u8g2.sendBuffer();
+            }
+        }
 
-      for(auto received: received_data){
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_u8glib_4_tf);
-        u8g2.drawStr(20,17,"Sensor number");
-        u8g2.drawUTF8(90,17,u8x8_u16toa(received.data.heartBeat,3));
-        u8g2.drawUTF8(110,17,u8x8_u16toa(received.mac[5],3));
-        u8g2.setFont(u8g2_font_8x13B_tr);
-        u8g2.drawUTF8(50,32,u8x8_u16toa(received.data.adc_value,4));
-        u8g2.sendBuffer();
-        delay(3000);
+        update_counter++;
+        if (update_counter > 3 * received_data.size() - 1){
+          update_counter = 0;
+        }
+        delay(1000);
       }
       break;
     
