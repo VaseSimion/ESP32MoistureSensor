@@ -5,26 +5,23 @@
 #include <esp_wifi.h>
 #include <esp_now.h>
 
-#ifdef U8X8_HAVE_HW_SPI
-#include <SPI.h>
-#endif
-#ifdef U8X8_HAVE_HW_I2C
-#include <Wire.h>
-#endif
 #define MAC_SIZE 6
 #define PAIRING_PIN 4
 
 U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);
 
-// uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
-// uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xCE, 0x3C}; //theother ESP32
-enum runing_state {PAIRING, NORMAL, NODATA, ERROR};
+const uint8_t ESP_OUI[] = {0x18, 0xFE, 0x34};
+uint8_t sender_address[MAC_SIZE] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+enum runing_state {PAIRING, NORMAL, NODATA, ERROR, LISTENING};
+
 runing_state current_state = NODATA;
 runing_state previous_state = ERROR;
 uint16_t og_millis = 0;
+int rssi = 0;
 
 typedef struct struct_message {
-  char name[32];
+  runing_state operation;
   uint16_t adc_value;
   uint8_t heartBeat;
 } struct_message;
@@ -34,35 +31,148 @@ typedef struct saved_values{
   struct_message data;
 } saved_values;
 
+typedef struct saved_paired_device{
+  uint8_t mac[MAC_SIZE];
+} saved_paired_device;
+
 std::vector<saved_values> received_data;
+std::vector<saved_paired_device> paired_devices;
+
+void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
+  // All espnow traffic uses action frames which are a subtype of the mgmnt frames so filter out everything else.
+  if (type != WIFI_PKT_MGMT)
+    return;
+
+  static const uint8_t ACTION_SUBTYPE = 0xd0;
+
+  typedef struct {
+    unsigned frame_ctrl: 16;  
+    unsigned duration_id: 16;
+    uint8_t receiver_addr[6];
+    uint8_t sender_addr[6]; 
+    uint8_t filtering_addr[6];
+    unsigned sequence_ctrl: 16;
+    unsigned category:8;
+    uint8_t addr4[6]; // Contains organizationally Unique Identifier
+  } wifi_ieee80211_mac_hdr_t;
+
+  typedef struct {
+    wifi_ieee80211_mac_hdr_t hdr;
+    uint8_t payload[0]; // network data ended with 4 bytes csum (CRC32) 
+  } wifi_ieee80211_packet_t;
+
+  const wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t *)buf;
+  const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t *)ppkt->payload;
+  const wifi_ieee80211_mac_hdr_t *hdr = &ipkt->hdr;
+
+  // Only continue processing if this is an action frame containing the Espressif OUI.
+  if ((ACTION_SUBTYPE == (hdr->frame_ctrl & 0xFF)) && (memcmp(hdr->addr4, ESP_OUI, 3) == 0)){
+    rssi = ppkt->rx_ctrl.rssi;
+    saved_paired_device device;
+    memcpy(&device.mac[0], hdr->sender_addr, MAC_SIZE);
+    
+    //TODO: This is a debug print, remove it later, also the memcpy should be removed
+    Serial.print("Sender MAC address: ");
+    for(int i = 0; i < MAC_SIZE; i++){
+      Serial.print(device.mac[i], HEX);
+      Serial.print(":");
+    }
+    Serial.println();
+    Serial.print("RSSI: ");
+    Serial.println(rssi);
+    //end of debug print
+
+    bool new_device = true;
+    //TODO Implement the rssi check and the max number of devices allowed
+    if(sizeof(paired_devices) == 0)
+    {
+      memcpy(&sender_address, &device.mac[0], sizeof(sender_address));
+      current_state = PAIRING;
+      paired_devices.push_back(device); //TODO: Remove this line after receiver sends the message done
+    }
+    else{
+      for (auto saved_device : paired_devices){
+        if(memcmp(&sender_address, &saved_device, sizeof(sender_address)) == 0){
+          new_device = false;
+          break;
+        }
+      }
+    }
+    if(new_device){
+      memcpy(&sender_address, &device.mac[0], sizeof(sender_address));
+      current_state = PAIRING;
+      paired_devices.push_back(device); //TODO: Remove this line after receiver sends the message done
+    }
+  }
+}
 
 // callback function that will be executed when data is received
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   uint8_t macOfSender[6];
-  memcpy(&macOfSender, incomingData, sizeof(macOfSender));
+  struct_message received_message;
+  memcpy(&macOfSender, mac, sizeof(macOfSender));
+  memcpy(&received_message, incomingData, sizeof(received_message));  
   
-  if(received_data.size() == 0){
-    saved_values new_data;
-    memcpy(&new_data.data, incomingData, sizeof(new_data.data));  
-    memcpy(&new_data.mac, &macOfSender, sizeof(macOfSender));
-    received_data.push_back(new_data);
+  // Print the incoming data for debugging purposes
+  Serial.print("Bytes received: ");
+  Serial.println(len);
+  Serial.print("Operation: ");
+  Serial.println(received_message.operation);
+  Serial.print("ADC value: ");
+  Serial.println(received_message.adc_value);
+  Serial.print("Heartbeat: ");
+  Serial.println(received_message.heartBeat);
+  Serial.print("MAC address: ");
+  for(int i = 0; i < MAC_SIZE; i++){
+    Serial.print(macOfSender[i], HEX);
+    Serial.print(":");
   }
-  else{
-    bool new_element = true;
-    for(int i = 0; i < received_data.size(); i++) {
-      if(memcmp(&received_data[i].mac, &macOfSender, sizeof(macOfSender)) == 0){
-        memcpy(&received_data[i].data, incomingData, sizeof(received_data[i].data));
-        new_element = false;
-        break;
-      }
-    }
-    if(new_element){
+  Serial.println();
+  // end of debug print
+
+  if(current_state == NORMAL && received_message.operation == NORMAL){    
+    if(received_data.size() == 0){
       saved_values new_data;
-      memcpy(&new_data.data, incomingData, sizeof(new_data.data));
-      memcpy(&new_data.mac, &macOfSender, sizeof(macOfSender));
+      memcpy(&new_data.data, incomingData, sizeof(new_data.data));  
+      memcpy(&new_data.mac, mac, sizeof(macOfSender));
       received_data.push_back(new_data);
     }
+    else{
+      bool new_element = true;
+      for(int i = 0; i < received_data.size(); i++) {
+        if(memcmp(&received_data[i].mac, mac, sizeof(macOfSender)) == 0){
+          memcpy(&received_data[i].data, incomingData, sizeof(received_data[i].data));
+          new_element = false;
+          break;
+        }
+      }
+      if(new_element){
+        saved_values new_data;
+        memcpy(&new_data.data, incomingData, sizeof(new_data.data));
+        memcpy(&new_data.mac, mac, sizeof(macOfSender));
+        received_data.push_back(new_data);
+      }
+    }
   }
+  else if(current_state == PAIRING && received_message.operation == PAIRING){
+    Serial.println("Pairing confirmed");
+    saved_paired_device device;
+    memcpy(&device.mac[0], mac, MAC_SIZE);
+    paired_devices.push_back(device);
+  }
+  else if (current_state == NODATA && received_message.operation == NORMAL)
+  {
+    current_state = NORMAL; //TODO: This is temporary until pariring works
+  }
+  else{
+    Serial.println("Something does not match");
+  }
+}
+
+// callback when data is sent
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+    Serial.print("\r\nLast Packet Send Status:\t");
+    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
 void setup(void) {
@@ -83,24 +193,78 @@ void setup(void) {
     return;
   }
   
-  // Once ESPNow is successfully Init, we will register for recv CB to get recv packer info
+  // Once ESPNow is successfully Init, we will register for recv/sender callbacks to get recv packer info
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+  esp_now_register_send_cb(OnDataSent);
+  esp_wifi_set_promiscuous_rx_cb(&promiscuous_rx_cb);
 }
 
 void loop(void) {
+    esp_err_t pairing_send_result = ESP_OK;
+    
     switch (current_state){
     case PAIRING:
+      static int pairing_counter = 0;
+      struct_message pairing_data;
+
       if(current_state != previous_state){
         Serial.println("Just entered pairing state");
         previous_state = current_state;
+        
+        WiFi.mode(WIFI_MODE_STA);
+        esp_wifi_set_promiscuous(0);
+        
+        // Register peer
+        esp_now_peer_info_t peerInfo;
+        memcpy(peerInfo.peer_addr, sender_address, 6);
+        peerInfo.channel = 0;  
+        peerInfo.encrypt = false;
+          // Add peer        
+        if (esp_now_add_peer(&peerInfo) != ESP_OK){
+          Serial.println("Failed to add peer");
+          return;
+        }
       }
-      Serial.println("Pairing");
+
+      // Send message via ESP-NOW
+      pairing_send_result = esp_now_send(sender_address, (uint8_t *) &pairing_data, sizeof(pairing_data));      
+      Serial.print("Pairing send result: ");
+      Serial.println(pairing_send_result);
+
       u8g2.clearBuffer();
       u8g2.setFont(u8g2_font_8x13B_tr);
-      u8g2.drawStr(40,22,"Pairing");
+      u8g2.drawStr(40,25,"Pairing");
       u8g2.sendBuffer();
-      delay(10000);
-      current_state = NORMAL; //currently not using pairing
+      delay(100);
+
+      pairing_counter++;
+      if(pairing_counter > 100){
+        pairing_counter = 0;
+        current_state = NORMAL;
+      }
+      break;
+
+    case LISTENING:
+      static int listening_counter = 0;
+      if(current_state != previous_state){
+        Serial.println("Just entered listening state");
+        previous_state = current_state;
+        
+        WiFi.mode(WIFI_MODE_APSTA);
+        esp_wifi_set_promiscuous(1);
+      }
+
+      u8g2.clearBuffer();
+      u8g2.setFont(u8g2_font_8x13B_tr);
+      u8g2.drawStr(40,25,"Listening");
+      u8g2.sendBuffer();
+      delay(100);
+
+      listening_counter++;
+      if(listening_counter > 100){
+        listening_counter = 0;
+        current_state = NORMAL;
+      }
       break;
 
     case NORMAL:
@@ -109,10 +273,24 @@ void loop(void) {
       if(current_state != previous_state){
         Serial.println("Just entered normal state");
         previous_state = current_state;
+
+        WiFi.mode(WIFI_STA);
+
+        esp_wifi_set_promiscuous(0);
+
+        for (auto saved_device : paired_devices){  // Print all paired devices debug TODO: Remove
+         Serial.print("Paired device MAC address: ");
+          for(int i = 0; i < MAC_SIZE; i++){
+            Serial.print(saved_device.mac[i], HEX);
+            Serial.print(":");
+          }
+          Serial.println();
+        }
+
       }
 
       if (digitalRead(PAIRING_PIN) == HIGH){
-        current_state = PAIRING;
+        current_state = LISTENING;
       }
       else{
         if(received_data.size() == 0){

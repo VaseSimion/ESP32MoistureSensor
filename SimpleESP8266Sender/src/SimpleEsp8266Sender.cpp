@@ -12,11 +12,12 @@ const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
 const int sensorPowerPin = 12; // ESP8266 Digital Pin D6 = GPIO12
 
 uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
+enum runing_state {PAIRING, NORMAL, NODATA, ERROR};
 
 typedef struct struct_message {
-  char name[32];
+  runing_state operation;
   uint16_t adc_value;
-  uint8_t heartBeat = 0;
+  uint8_t heartBeat;
 } struct_message;
 
 static struct_message sendData;
@@ -58,6 +59,7 @@ void setup(void) {
   digitalWrite(sensorPowerPin, HIGH);
   
   ESP.rtcUserMemoryRead(0, (uint32_t *) &sendData, sizeof(sendData));
+  sendData.operation = NORMAL;
     // Init Serial Monitor
   Serial.begin(115200);
   Serial.setTimeout(2000);
@@ -112,15 +114,6 @@ void setup(void) {
     }
   }
   Serial.println();
-*/
-
-/*
-  sendData.macOfOgSender[0] = 0x48;
-  sendData.macOfOgSender[1] = 0xE7;
-  sendData.macOfOgSender[2] = 0x29;
-  sendData.macOfOgSender[3] = 0x6D;
-  sendData.macOfOgSender[4] = 0x38;
-  sendData.macOfOgSender[5] = 0xDC;
 */
 
   sendData.adc_value = 4*analogRead(analogInPin);

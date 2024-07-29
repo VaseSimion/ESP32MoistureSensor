@@ -11,14 +11,15 @@
 // REPLACE WITH YOUR RECEIVER MAC Address
 uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
 // uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xCE, 0x3C}; //sender
+enum runing_state {PAIRING, NORMAL, NODATA, ERROR};
 
 uint16_t adc_value = 0;
 uint16_t og_millis = 0;
 
 typedef struct struct_message {
-  char name[32];
+  runing_state operation;
   uint16_t adc_value;
-  uint8_t heartBeat = 0;
+  uint8_t heartBeat;
 } struct_message;
 
 // Create a struct_message called myData
@@ -103,13 +104,12 @@ void setup() {
   }
   file.close();
 
-  file.close();
 }
 
 void loop() {
     delay(150);
       // Set values to send
-    strcpy(myData.name, "Esp Sender");
+    myData.operation = NORMAL;
     myData.adc_value = analogRead(ADC_PIN);
     myData.heartBeat++;
     // Send message via ESP-NOW
