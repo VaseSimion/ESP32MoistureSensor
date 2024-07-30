@@ -13,7 +13,7 @@ U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, 
 const uint8_t ESP_OUI[] = {0x18, 0xFE, 0x34};
 uint8_t sender_address[MAC_SIZE] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-enum runing_state {PAIRING, NORMAL, NODATA, ERROR, LISTENING};
+enum runing_state {LISTENING, PAIRING, NORMAL, NODATA, ERROR};
 
 runing_state current_state = NODATA;
 runing_state previous_state = ERROR;
@@ -88,11 +88,10 @@ void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     {
       memcpy(&sender_address, &device.mac[0], sizeof(sender_address));
       current_state = PAIRING;
-      paired_devices.push_back(device); //TODO: Remove this line after receiver sends the message done
     }
     else{
       for (auto saved_device : paired_devices){
-        if(memcmp(&sender_address, &saved_device, sizeof(sender_address)) == 0){
+        if(memcmp(&device.mac[0], &saved_device, sizeof(sender_address)) == 0){
           new_device = false;
           break;
         }
@@ -101,7 +100,6 @@ void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     if(new_device){
       memcpy(&sender_address, &device.mac[0], sizeof(sender_address));
       current_state = PAIRING;
-      paired_devices.push_back(device); //TODO: Remove this line after receiver sends the message done
     }
   }
 }
@@ -113,6 +111,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&macOfSender, mac, sizeof(macOfSender));
   memcpy(&received_message, incomingData, sizeof(received_message));  
   
+  /*
   // Print the incoming data for debugging purposes
   Serial.print("Bytes received: ");
   Serial.println(len);
@@ -129,8 +128,8 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   }
   Serial.println();
   // end of debug print
-
-  if(current_state == NORMAL && received_message.operation == NORMAL){    
+  */
+  if(current_state == NORMAL && received_message.operation == NORMAL){    //TODO: Acept just if paired before
     if(received_data.size() == 0){
       saved_values new_data;
       memcpy(&new_data.data, incomingData, sizeof(new_data.data));  
@@ -159,6 +158,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     saved_paired_device device;
     memcpy(&device.mac[0], mac, MAC_SIZE);
     paired_devices.push_back(device);
+    current_state = NORMAL;
   }
   else if (current_state == NODATA && received_message.operation == NORMAL)
   {
@@ -206,7 +206,8 @@ void loop(void) {
     case PAIRING:
       static int pairing_counter = 0;
       struct_message pairing_data;
-
+      esp_now_peer_info_t peerInfo;
+      
       if(current_state != previous_state){
         Serial.println("Just entered pairing state");
         previous_state = current_state;
@@ -215,7 +216,6 @@ void loop(void) {
         esp_wifi_set_promiscuous(0);
         
         // Register peer
-        esp_now_peer_info_t peerInfo;
         memcpy(peerInfo.peer_addr, sender_address, 6);
         peerInfo.channel = 0;  
         peerInfo.encrypt = false;
@@ -227,9 +227,16 @@ void loop(void) {
       }
 
       // Send message via ESP-NOW
+      pairing_data.operation = PAIRING;
       pairing_send_result = esp_now_send(sender_address, (uint8_t *) &pairing_data, sizeof(pairing_data));      
       Serial.print("Pairing send result: ");
       Serial.println(pairing_send_result);
+      Serial.print("Pairing with device: ");
+      for(int i = 0; i < MAC_SIZE; i++){
+        Serial.print(sender_address[i], HEX);
+        Serial.print(":");
+      }
+      Serial.println();
 
       u8g2.clearBuffer();
       u8g2.setFont(u8g2_font_8x13B_tr);
@@ -238,8 +245,9 @@ void loop(void) {
       delay(100);
 
       pairing_counter++;
-      if(pairing_counter > 100){
+      if(pairing_counter > 100){ //Timeout for pairing
         pairing_counter = 0;
+        esp_now_del_peer(peerInfo.peer_addr);
         current_state = NORMAL;
       }
       break;
@@ -336,11 +344,15 @@ void loop(void) {
         previous_state = current_state;
       }
 
+      if (digitalRead(PAIRING_PIN) == HIGH){
+        current_state = LISTENING;
+      }
+
       u8g2.clearBuffer();
       u8g2.setFont(u8g2_font_8x13B_tr);
       u8g2.drawStr(40,32,"No data");
       u8g2.sendBuffer();
-      delay(3000);
+      delay(1000);
     
       if(received_data.size() > 0){
         current_state = NORMAL;

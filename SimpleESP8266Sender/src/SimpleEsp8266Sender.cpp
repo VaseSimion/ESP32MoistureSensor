@@ -12,7 +12,7 @@ const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
 const int sensorPowerPin = 12; // ESP8266 Digital Pin D6 = GPIO12
 
 uint8_t broadcastAddress[] = {0xCC, 0x7B, 0x5C, 0x28, 0xD4, 0x50};
-enum runing_state {PAIRING, NORMAL, NODATA, ERROR};
+enum runing_state {LISTENING, PAIRING, NORMAL, NODATA, ERROR};
 
 typedef struct struct_message {
   runing_state operation;
