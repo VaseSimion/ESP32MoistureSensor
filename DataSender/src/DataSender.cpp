@@ -2,6 +2,7 @@
 #include <esp_wifi.h>
 #include <esp_now.h>
 #include <LittleFS.h>
+#include "DebugSupport.h"
 
 #define ADC_PIN 34
 #define MAC_SIZE 6
@@ -33,12 +34,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
     static uint8_t failure_count = 0;
     Serial.print("Last Packet Send Status: ");
     Serial.print(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-    Serial.print(" to MAC address: ");
-    for(int i = 0; i < MAC_SIZE; i++){
-      Serial.print(mac_addr[i], HEX);
-      Serial.print(":");
-    }
-    Serial.println();
+    printMacAddress(Serial, (uint8_t *) mac_addr, " to MAC: ");
 
     if(status == ESP_NOW_SEND_SUCCESS && local_operation==PAIRING){
       File file = LittleFS.open("/opMode.txt", FILE_WRITE);
@@ -47,7 +43,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
       file.close();
       file = LittleFS.open("/broadcastMac.txt", FILE_WRITE);
       for(int i = 0; i < MAC_SIZE; i++){
-        file.printf("%02x",mac_addr[i]);
+        file.printf("%02X",mac_addr[i]);
       }
       file.close();
       delay(100);
@@ -87,24 +83,14 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println(received_message.adc_value);
   Serial.print("Heartbeat: ");
   Serial.println(received_message.heartBeat);
-  Serial.print("MAC address: ");
-  for(int i = 0; i < MAC_SIZE; i++){
-    Serial.print(macOfSender[i], HEX);
-    Serial.print(":");
-  }
-  Serial.println();
+  printMacAddress(Serial, macOfSender, "MAC Address: ");
   // end of debug print
 
   if(local_operation == LISTENING && received_message.operation == PAIRING){    
     local_operation = PAIRING;
     memcpy(&broadcastAddress, mac, sizeof(macOfSender));
     Serial.println("Pairing with new device");
-    Serial.println("New MAC address: ");
-    for(int i = 0; i < MAC_SIZE; i++){
-      Serial.print(broadcastAddress[i], HEX);
-      Serial.print(":");
-    }
-    Serial.println();
+    printMacAddress(Serial, broadcastAddress, "New device MAC address: ");
 
     esp_now_del_peer(peerInfo.peer_addr);
 
@@ -221,24 +207,18 @@ void setup() {
           broadcastAddress[i] = content[2*i] - '0';
         }
         else{
-          broadcastAddress[i] = content[2*i] - 'a' + 10;
+          broadcastAddress[i] = content[2*i] - 'A' + 10;
         }
         if(isDigit(content[2*i+1])){
           broadcastAddress[i] = (broadcastAddress[i] << 4) | (content[2*i+1] - '0');
         }
         else{
-          broadcastAddress[i] = (broadcastAddress[i] << 4) | (content[2*i+1] - 'a' + 10);
+          broadcastAddress[i] = (broadcastAddress[i] << 4) | (content[2*i+1] - 'A' + 10);
         }
       }
     }
   }
-  
-  Serial.print("Booted with Broadcast MAC address: ");
-  for(int i = 0; i < MAC_SIZE; i++){
-    Serial.print(broadcastAddress[i], HEX);
-    Serial.print(":");
-  }
-  Serial.println();
+  printMacAddress(Serial, &broadcastAddress[0], "Booted with Broadcast MAC address: ");
   
   // Register peer
   memcpy(peerInfo.peer_addr, broadcastAddress, 6);

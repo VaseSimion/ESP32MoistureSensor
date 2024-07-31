@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_now.h>
+#include "DebugSupport.h"
 
 #define MAC_SIZE 6
 #define PAIRING_PIN 4
@@ -71,22 +72,22 @@ void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     saved_paired_device device;
     memcpy(&device.mac[0], hdr->sender_addr, MAC_SIZE);
     
-    //TODO: This is a debug print, remove it later, also the memcpy should be removed
-    Serial.print("Sender MAC address: ");
-    for(int i = 0; i < MAC_SIZE; i++){
-      Serial.print(device.mac[i], HEX);
-      Serial.print(":");
-    }
-    Serial.println();
+    //TODO: This is a debug print, remove it later
+    printMacAddress(Serial, &device.mac[0], "Sender MAC address: ");
+
     Serial.print("RSSI: ");
     Serial.println(rssi);
     //end of debug print
 
+    if(rssi < -30 || sizeof(paired_devices) > 19 ){
+      return;
+    }
+    
     bool new_device = true;
-    //TODO Implement the rssi check and the max number of devices allowed
     if(sizeof(paired_devices) == 0)
     {
       memcpy(&sender_address, &device.mac[0], sizeof(sender_address));
+      Serial.println("First device found");
       current_state = PAIRING;
     }
     else{
@@ -99,6 +100,7 @@ void promiscuous_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     }
     if(new_device){
       memcpy(&sender_address, &device.mac[0], sizeof(sender_address));
+      Serial.println("New device found");
       current_state = PAIRING;
     }
   }
@@ -110,31 +112,22 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   struct_message received_message;
   memcpy(&macOfSender, mac, sizeof(macOfSender));
   memcpy(&received_message, incomingData, sizeof(received_message));  
-  
-  /*
-  // Print the incoming data for debugging purposes
-  Serial.print("Bytes received: ");
-  Serial.println(len);
-  Serial.print("Operation: ");
-  Serial.println(received_message.operation);
-  Serial.print("ADC value: ");
-  Serial.println(received_message.adc_value);
-  Serial.print("Heartbeat: ");
-  Serial.println(received_message.heartBeat);
-  Serial.print("MAC address: ");
-  for(int i = 0; i < MAC_SIZE; i++){
-    Serial.print(macOfSender[i], HEX);
-    Serial.print(":");
-  }
-  Serial.println();
-  // end of debug print
-  */
-  if(current_state == NORMAL && received_message.operation == NORMAL){    //TODO: Acept just if paired before
+
+  if((current_state == NORMAL || current_state == NODATA) && received_message.operation == NORMAL){    //TODO: Acept just if paired before
     if(received_data.size() == 0){
-      saved_values new_data;
-      memcpy(&new_data.data, incomingData, sizeof(new_data.data));  
-      memcpy(&new_data.mac, mac, sizeof(macOfSender));
-      received_data.push_back(new_data);
+      bool accepted_device = false;
+      for(auto saved_device : paired_devices){
+        if(memcmp(&saved_device.mac[0], &macOfSender[0], sizeof(macOfSender)) == 0){
+          accepted_device = true;
+          break;
+        }
+      }
+      if(accepted_device){
+        saved_values new_data;
+        memcpy(&new_data.data, incomingData, sizeof(new_data.data));  
+        memcpy(&new_data.mac, mac, sizeof(macOfSender));
+        received_data.push_back(new_data);
+      }
     }
     else{
       bool new_element = true;
@@ -146,10 +139,19 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
         }
       }
       if(new_element){
-        saved_values new_data;
-        memcpy(&new_data.data, incomingData, sizeof(new_data.data));
-        memcpy(&new_data.mac, mac, sizeof(macOfSender));
-        received_data.push_back(new_data);
+        bool accepted_device = false;
+        for(auto saved_device : paired_devices){
+          if(memcmp(&saved_device.mac[0], &macOfSender[0], sizeof(macOfSender)) == 0){
+            accepted_device = true;
+            break;
+          }
+        }
+        if(accepted_device){
+          saved_values new_data;
+          memcpy(&new_data.data, incomingData, sizeof(new_data.data));
+          memcpy(&new_data.mac, mac, sizeof(macOfSender));
+          received_data.push_back(new_data);
+        }
       }
     }
   }
@@ -160,12 +162,8 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     paired_devices.push_back(device);
     current_state = NORMAL;
   }
-  else if (current_state == NODATA && received_message.operation == NORMAL)
-  {
-    current_state = NORMAL; //TODO: This is temporary until pariring works
-  }
   else{
-    Serial.println("Something does not match");
+    Serial.printf("Something did not match: Operation is %d and message operation is %d\n", current_state, received_message.operation);
   }
 }
 
@@ -197,6 +195,53 @@ void setup(void) {
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
   esp_now_register_send_cb(OnDataSent);
   esp_wifi_set_promiscuous_rx_cb(&promiscuous_rx_cb);
+
+  //Start of Pairing for esp8266 devices //TODO: Remove this part when ESP8266 is not used anymore
+  esp_now_peer_info_t peerInfo={};
+  saved_paired_device temp_device;
+
+  uint8_t temp_address[MAC_SIZE] = {0x48, 0xE7, 0x29, 0x6D, 0x38, 0xDC};
+    // Register peer
+  memcpy(peerInfo.peer_addr, temp_address, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+    // Add peer        
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  memcpy(&temp_device.mac[0], &temp_address[0], MAC_SIZE);
+  paired_devices.push_back(temp_device);
+  
+  uint8_t second_temp_address[MAC_SIZE] = {0xEC, 0x64, 0xC9, 0xC5, 0x17, 0x4C};
+  // Register peer
+  memcpy(peerInfo.peer_addr, second_temp_address, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  // Add peer        
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  memcpy(&temp_device.mac[0], &second_temp_address[0], MAC_SIZE);
+  paired_devices.push_back(temp_device);
+
+  uint8_t third_temp_address[MAC_SIZE] = {0xEC, 0x64, 0xC9, 0xC5, 0x05, 0x13};
+  // Register peer
+  memcpy(peerInfo.peer_addr, third_temp_address, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  // Add peer        
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  memcpy(&temp_device.mac[0], &third_temp_address[0], MAC_SIZE);
+  paired_devices.push_back(temp_device);
+  //End of Pairing for esp8266 devices
 }
 
 void loop(void) {
@@ -231,17 +276,9 @@ void loop(void) {
       pairing_send_result = esp_now_send(sender_address, (uint8_t *) &pairing_data, sizeof(pairing_data));      
       Serial.print("Pairing send result: ");
       Serial.println(pairing_send_result);
-      Serial.print("Pairing with device: ");
-      for(int i = 0; i < MAC_SIZE; i++){
-        Serial.print(sender_address[i], HEX);
-        Serial.print(":");
-      }
-      Serial.println();
+      printMacAddress(Serial, &sender_address[0], "Pairing with device: ");
 
-      u8g2.clearBuffer();
-      u8g2.setFont(u8g2_font_8x13B_tr);
-      u8g2.drawStr(40,25,"Pairing");
-      u8g2.sendBuffer();
+      displayBigText(&u8g2, "Pairing");
       delay(100);
 
       pairing_counter++;
@@ -262,10 +299,7 @@ void loop(void) {
         esp_wifi_set_promiscuous(1);
       }
 
-      u8g2.clearBuffer();
-      u8g2.setFont(u8g2_font_8x13B_tr);
-      u8g2.drawStr(40,25,"Listening");
-      u8g2.sendBuffer();
+      displayBigText(&u8g2, "Listening");
       delay(100);
 
       listening_counter++;
@@ -277,7 +311,6 @@ void loop(void) {
 
     case NORMAL:
       static int update_counter = 0;
-
       if(current_state != previous_state){
         Serial.println("Just entered normal state");
         previous_state = current_state;
@@ -287,12 +320,7 @@ void loop(void) {
         esp_wifi_set_promiscuous(0);
 
         for (auto saved_device : paired_devices){  // Print all paired devices debug TODO: Remove
-         Serial.print("Paired device MAC address: ");
-          for(int i = 0; i < MAC_SIZE; i++){
-            Serial.print(saved_device.mac[i], HEX);
-            Serial.print(":");
-          }
-          Serial.println();
+          printMacAddress(Serial, &saved_device.mac[0], "Paired device MAC Address: ");
         }
 
       }
@@ -302,23 +330,19 @@ void loop(void) {
       }
       else{
         if(received_data.size() == 0){
-          u8g2.clearBuffer();
-          u8g2.setFont(u8g2_font_u8glib_4_tf);
-          u8g2.drawStr(20,17,"No data received");
-          u8g2.sendBuffer();
+          displayBigText(&u8g2, "No data");
+          
+          if(paired_devices.size() == 0){
+            current_state = NODATA;
+          }
         }
         else{
-          if(update_counter % 3 != 0){
+          if(update_counter % 30 != 0){
             u8g2.clearBuffer();
           }
           else{
-            saved_values received = received_data[int(update_counter / 3)];
-            Serial.print("MAC address: ");
-            for(int i = 0; i < MAC_SIZE; i++){
-              Serial.print(received.mac[i], HEX);
-              Serial.print(":");
-            }
-            Serial.println();
+            saved_values received = received_data[int(update_counter / 30)];
+            printMacAddress(Serial, &received.mac[0], "On screen now: ");
             u8g2.clearBuffer();
             u8g2.setFont(u8g2_font_u8glib_4_tf);
             u8g2.drawStr(20,17,"Sensor number");
@@ -331,10 +355,10 @@ void loop(void) {
         }
 
         update_counter++;
-        if (update_counter > 3 * received_data.size() - 1){
+        if (update_counter > 30 * received_data.size() - 1){
           update_counter = 0;
         }
-        delay(1000);
+        delay(100);
       }
       break;
     
@@ -342,22 +366,18 @@ void loop(void) {
       if(current_state != previous_state){
         Serial.println("Just entered no data state");
         previous_state = current_state;
+        displayBigText(&u8g2, "No data");
       }
 
       if (digitalRead(PAIRING_PIN) == HIGH){
         current_state = LISTENING;
       }
 
-      u8g2.clearBuffer();
-      u8g2.setFont(u8g2_font_8x13B_tr);
-      u8g2.drawStr(40,32,"No data");
-      u8g2.sendBuffer();
-      delay(1000);
-    
+      delay(100);
+
       if(received_data.size() > 0){
         current_state = NORMAL;
       }
-
       break;
 
     default:{
