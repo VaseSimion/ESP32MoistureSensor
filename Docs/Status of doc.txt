@@ -19,3 +19,16 @@ Sensor needs at least 20ms to be powered before it can measure
 164uA consumes the D1 while in deep sleep 
 GPIO7 needs to be pulled up with 10k to 3.3V
 Initializing filesystem and reading from a file with 4 lines takes 4-5 ms
+
+ESP-C3
+-> General
+USB connector should be surface mount not mid mount
+LED footprint should be bigger
+Buttons do not match the footprint
+
+-> TI LDO
+R1+C5 make it so that the timer does not pull the enable low so the ESP does not shut down
+Removing R1+C5 doesn't change the behavior
+
+-> Low qc LDO
+Pulldown missing from the enable pin of the LDO (works even without because it seems the timer is enough to pull the signal low, stil should add that pulldown)
